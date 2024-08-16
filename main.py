@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.api.v1.endpoints import codereview
+from api.routers import codereview
 
 app = FastAPI()
 

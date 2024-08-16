@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from app.services.codereview import perform_code_review
+from services.codereview import perform_code_review
 import os
 from dotenv import load_dotenv
 
