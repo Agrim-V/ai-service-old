@@ -1,0 +1,19 @@
+# Python
+*.pyc
+__pycache__/
+
+# Virtual environment
+venv/
+env/
+
+# IDE/editor files
+.vscode/
+.idea/
+
+# Environment variables
+.env
+
+# Docker
+.dockerignore
+
+file-structure.txt
