@@ -11,7 +11,6 @@ router = APIRouter()
 async def review_pull_request(owner: str, repo: str, pr_number: int):
     try:
         print(f"Received request with owner: {owner}, repo: {repo}, pr_number: {pr_number}")
-        print(os.getenv("GITHUB_TOKEN"))
         result = perform_code_review(owner, repo, pr_number)
         print(f"Code review result: {result}")
         return {"result": result}
