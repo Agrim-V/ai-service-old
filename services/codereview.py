@@ -14,6 +14,7 @@ class GithubRetriever:
         self.gh = login(token=github_token)
         self.repo = self.gh.repository(owner, repo_name)
         self.pull_request = self.repo.pull_request(pr_number)
+        self.commented_lines = set()  # Store already commented lines
 
     def get_pr_details(self):
         files_changed = [file for file in self.pull_request.files()]
@@ -25,6 +26,9 @@ class GithubRetriever:
             "commit_messages": commit_messages,
             "pr_comments": pr_comments
         }
+    
+    def add_commented_line(self, file_path, line_number):
+        self.commented_lines.add((file_path, line_number))
     
 class PRSummaryChain:
     def __init__(self, code_summary_llm, pr_summary_llm):
@@ -59,11 +63,27 @@ class CodeReviewChain:
         for file in pr_details['files_changed']:
             review = LLMChain(
                 llm=self.llm,
-                prompt=PromptTemplate.from_template("Review the following code changes:\n{code_diff}")
+                prompt=PromptTemplate.from_template(
+                    """Your task is to review pull requests. Instructions:
+                    - Do not give positive comments or compliments.
+                    - Provide comments and suggestions ONLY if there is something to improve, otherwise return an empty array.
+                    - Provide conceptual knowledge in the comments if necessary. 
+                    - Ensure endpoints follow RESTful architecture. 
+                    - Write the comment in GitHub Markdown format. 
+                    - Use the given description only for the overall context and only comment the code.
+                    
+                    Here's the code diff:{code_diff}
+                    """)
             ).run(code_diff=file.patch)
-            # Split the review into individual comments if necessary
-            comments = [{"file_path": file.filename, "line_number": 1, "comment": review}]  # Example of one comment
-            code_reviews.append({"file_path": file.filename, "review": review, "comments": comments})
+            # Split the review into individual line-based comments
+            for i, line in enumerate(review.splitlines()):
+                if line.strip():
+                    comments = [{
+                        "file_path": file.filename,
+                        "line_number": i + 1,  # Adjust the line number to be accurate
+                        "comment": line.strip()
+                    }]
+                    code_reviews.append({"file_path": file.filename, "comments": comments})
         return {"code_reviews": code_reviews}
     
 class PullRequestReporter:
@@ -80,11 +100,10 @@ class PullRequestReporter:
             report += f"{summary}\n\n"
         report += "### Code Reviews\n\n"
         for review in self.code_reviews:
-            report += f"**File: {review['file_path']}**\n{review['review']}\n\n"
+            report += f"Line number: {review['comments'][0]['line_number']}\nComment:{review['comments'][0]['comment']}\n\n"
         return report
 
-def perform_code_review(owner, repo, pr_number):
-    github_token = os.getenv("GITHUB_TOKEN")
+def perform_code_review(owner, repo, pr_number, github_token):
     retriever = GithubRetriever(github_token, owner, repo, pr_number)
     pr_details = retriever.get_pr_details()
 
@@ -93,14 +112,13 @@ def perform_code_review(owner, repo, pr_number):
     # Initialize and run the summary chain
     pr_summary_chain = PRSummaryChain(
         code_summary_llm=load_gpt_llm(), 
-        pr_summary_llm=load_gpt4_llm()
+        pr_summary_llm=load_gpt_llm()
     )
     summary = pr_summary_chain.run(pr_details)
 
     # Initialize and run the code review chain
     code_review_chain = CodeReviewChain(llm=load_gpt_llm())
     reviews = code_review_chain.run(pr_details)
-
     # Generate the final report
     reporter = PullRequestReporter(
         pr_summary=summary["pr_summary"],
@@ -121,6 +139,7 @@ def perform_code_review(owner, repo, pr_number):
                 path=file_path,
                 position=line_number
             )
+            retriever.add_commented_line(file_path, line_number)
     return reporter.report()
 
 @lru_cache(maxsize=1)
